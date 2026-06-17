@@ -1,158 +1,158 @@
 name: Build & Release
 
 on:
-    push:
-        branches: [main]
+  push:
+    branches: [main, master]
 
 permissions:
-    contents: write
+  contents: write
 
 jobs:
-    version:
-        name: Determine Version
-        runs-on: ubuntu-latest
-        outputs:
-            version: ${{ steps.version.outputs.version }}
-            tag: ${{ steps.version.outputs.tag }}
-        steps:
-            - uses: actions/checkout@v4
+  version:
+    name: Determine Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
 
-            - name: Extract version from Cargo.toml
-              id: version
-              run: |
-                  VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-                  echo "version=$VERSION" >> $GITHUB_OUTPUT
-                  echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+      - name: Extract version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
 
-    build-msi:
-        name: Build Windows MSI
-        needs: version
-        runs-on: windows-latest
-        steps:
-            - uses: actions/checkout@v4
+  build-msi:
+    name: Build Windows MSI
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
 
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-            - name: Cache cargo
-              uses: actions/cache@v4
-              with:
-                  path: |
-                      ~/.cargo/registry
-                      ~/.cargo/git
-                      target
-                  key: windows-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-            - name: Install cargo-wix
-              run: cargo install cargo-wix
+      - name: Install cargo-wix
+        run: cargo install cargo-wix
 
-            - name: Build release
-              run: cargo build --release
+      - name: Build release
+        run: cargo build --release
 
-            - name: Build MSI
-              run: cargo wix --no-build --nocapture
+      - name: Build MSI
+        run: cargo wix --no-build --nocapture
 
-            - name: Upload MSI
-              uses: actions/upload-artifact@v4
-              with:
-                  name: cpps-windows-msi
-                  path: target/wix/*.msi
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpps-windows-msi
+          path: target/wix/*.msi
 
-            - name: Upload exe
-              uses: actions/upload-artifact@v4
-              with:
-                  name: cpps-windows-exe
-                  path: target/release/cpps.exe
+      - name: Upload exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpps-windows-exe
+          path: target/release/cpps.exe
 
-    build-linux:
-        name: Build Linux
-        needs: version
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
+  build-linux:
+    name: Build Linux
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-            - name: Cache cargo
-              uses: actions/cache@v4
-              with:
-                  path: |
-                      ~/.cargo/registry
-                      ~/.cargo/git
-                      target
-                  key: linux-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-            - name: Build release
-              run: cargo build --release
+      - name: Build release
+        run: cargo build --release
 
-            - name: Upload binary
-              uses: actions/upload-artifact@v4
-              with:
-                  name: cpps-linux
-                  path: target/release/cpps
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpps-linux
+          path: target/release/cpps
 
-    build-macos:
-        name: Build macOS
-        needs: version
-        runs-on: macos-latest
-        steps:
-            - uses: actions/checkout@v4
+  build-macos:
+    name: Build macOS
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
 
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-            - name: Cache cargo
-              uses: actions/cache@v4
-              with:
-                  path: |
-                      ~/.cargo/registry
-                      ~/.cargo/git
-                      target
-                  key: macos-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-            - name: Build release
-              run: cargo build --release
+      - name: Build release
+        run: cargo build --release
 
-            - name: Upload binary
-              uses: actions/upload-artifact@v4
-              with:
-                  name: cpps-macos
-                  path: target/release/cpps
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpps-macos
+          path: target/release/cpps
 
-    release:
-        name: Create Release
-        needs: [version, build-msi, build-linux, build-macos]
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
+  release:
+    name: Create Release
+    needs: [version, build-msi, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-            - name: Download all artifacts
-              uses: actions/download-artifact@v4
-              with:
-                  path: artifacts
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-            - name: Prepare release files
-              run: |
-                  mkdir release
-                  cp artifacts/cpps-windows-msi/*.msi release/
-                  cp artifacts/cpps-windows-exe/cpps.exe release/cpps-windows-x86_64.exe
-                  cp artifacts/cpps-linux/cpps release/cpps-linux-x86_64
-                  cp artifacts/cpps-macos/cpps release/cpps-macos-x86_64
-                  chmod +x release/cpps-linux-x86_64 release/cpps-macos-x86_64
+      - name: Prepare release files
+        run: |
+          mkdir release
+          cp artifacts/cpps-windows-msi/*.msi release/
+          cp artifacts/cpps-windows-exe/cpps.exe release/cpps-windows-x86_64.exe
+          cp artifacts/cpps-linux/cpps release/cpps-linux-x86_64
+          cp artifacts/cpps-macos/cpps release/cpps-macos-x86_64
+          chmod +x release/cpps-linux-x86_64 release/cpps-macos-x86_64
 
-            - name: Create/update tag
-              run: |
-                  git config user.name "github-actions"
-                  git config user.email "github-actions@github.com"
-                  git tag -fa ${{ needs.version.outputs.tag }} -m "Release ${{ needs.version.outputs.tag }}"
-                  git push origin ${{ needs.version.outputs.tag }} --force
+      - name: Create/update tag
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag -fa ${{ needs.version.outputs.tag }} -m "Release ${{ needs.version.outputs.tag }}"
+          git push origin ${{ needs.version.outputs.tag }} --force
 
-            - name: Create GitHub Release
-              uses: softprops/action-gh-release@v2
-              with:
-                  tag_name: ${{ needs.version.outputs.tag }}
-                  name: cpps ${{ needs.version.outputs.version }}
-                  files: release/*
-                  generate_release_notes: true
-                  make_latest: true
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: cpps ${{ needs.version.outputs.version }}
+          files: release/*
+          generate_release_notes: true
+          make_latest: true
