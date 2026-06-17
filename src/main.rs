@@ -24,6 +24,7 @@ fn main() {
         }
         Commands::Build { release } => commands::build::execute(release, &output_config),
         Commands::Add { package } => commands::add::execute(&package, &output_config),
+        Commands::Uninstall { force } => commands::uninstall::execute(force),
     };
 
     std::process::exit(exit_code);

@@ -28,15 +28,32 @@ impl Platform for WindowsPlatform {
     }
 
     fn install_command(&self, tool: &str) -> Option<Vec<String>> {
-        let cmd = match tool {
-            "g++" => vec!["winget", "install", "LLVM.LLVM", "--accept-package-agreements", "--accept-source-agreements"],
-            "clang++" => vec!["winget", "install", "LLVM.LLVM", "--accept-package-agreements", "--accept-source-agreements"],
-            "cmake" => vec!["winget", "install", "Kitware.CMake", "--accept-package-agreements", "--accept-source-agreements"],
-            "ninja" => vec!["winget", "install", "Ninja-build.Ninja", "--accept-package-agreements", "--accept-source-agreements"],
-            "vcpkg" => vec!["winget", "install", "Microsoft.Vcpkg", "--accept-package-agreements", "--accept-source-agreements"],
+        let cmd: Vec<String> = match tool {
+            // clang++ comes from LLVM
+            "g++" | "clang++" => vec![
+                "winget".into(), "install".into(), "LLVM.LLVM".into(),
+                "--accept-package-agreements".into(), "--accept-source-agreements".into(), "--silent".into(),
+            ],
+            "cmake" => vec![
+                "winget".into(), "install".into(), "Kitware.CMake".into(),
+                "--accept-package-agreements".into(), "--accept-source-agreements".into(), "--silent".into(),
+            ],
+            "ninja" => vec![
+                "winget".into(), "install".into(), "Ninja-build.Ninja".into(),
+                "--accept-package-agreements".into(), "--accept-source-agreements".into(), "--silent".into(),
+            ],
+            // vcpkg is not on winget — clone from GitHub
+            "vcpkg" => {
+                let home = std::env::var("USERPROFILE").unwrap_or_else(|_| r"C:\".to_string());
+                vec![
+                    "git".into(), "clone".into(),
+                    "https://github.com/microsoft/vcpkg.git".into(),
+                    format!("{}\\vcpkg", home),
+                ]
+            },
             _ => return None,
         };
-        Some(cmd.into_iter().map(String::from).collect())
+        Some(cmd)
     }
 
     fn vcpkg_triplet(&self) -> &str {

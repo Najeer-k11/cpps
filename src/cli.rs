@@ -43,4 +43,10 @@ pub enum Commands {
         /// Package name
         package: String,
     },
+    /// Uninstall cpps and all tools installed by cpps doctor --fix
+    Uninstall {
+        /// Remove everything without confirmation
+        #[arg(long)]
+        force: bool,
+    },
 }

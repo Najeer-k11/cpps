@@ -34,7 +34,7 @@ Checks your C++ development environment for required tools (compilers, cmake, ni
 
 ```bash
 cpps doctor          # Check environment
-cpps doctor --fix    # Auto-install missing tools
+cpps doctor --fix    # Auto-install missing tools (with progress bars)
 ```
 
 ### `cpps new <name>`
@@ -75,6 +75,15 @@ Adds a dependency via vcpkg.
 cpps add sdl2
 cpps add fmt
 cpps add boost-filesystem
+```
+
+### `cpps uninstall`
+
+Removes cpps and all tools installed by `cpps doctor --fix`. Cleans up directories and PATH entries.
+
+```bash
+cpps uninstall         # Prompts for confirmation
+cpps uninstall --force # No confirmation, removes everything
 ```
 
 ## Configuration

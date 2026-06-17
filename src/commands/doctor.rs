@@ -49,10 +49,23 @@ pub fn execute(fix: bool) -> i32 {
 
     let platform = platform::current_platform();
     let mut issues = 0;
+    let mut has_cpp_compiler = false;
 
     for tool in TOOLS {
+        // On Windows, g++ and clang++ are alternatives — only need one
+        #[cfg(target_os = "windows")]
+        {
+            if tool.name == "g++" {
+                // Skip g++ check entirely on Windows — clang++ from LLVM is the primary option
+                continue;
+            }
+        }
+
         match check_tool(tool) {
             ToolStatus::Found { version, path } => {
+                if tool.name == "clang++" || tool.name == "g++" {
+                    has_cpp_compiler = true;
+                }
                 if is_version_sufficient(&version, tool.min_version) {
                     print_success(&format!(
                         "{} {} found at {}",
@@ -67,19 +80,37 @@ pub fn execute(fix: bool) -> i32 {
                 }
             }
             ToolStatus::NotFound => {
-                if let Some(install_cmd) = platform.install_command(tool.name) {
-                    print_error(&format!(
-                        "{} not found  →  install: {}",
-                        tool.name,
-                        install_cmd.join(" ")
-                    ));
+                if tool.name == "clang++" || tool.name == "g++" {
+                    // Only report as issue if no C++ compiler at all
+                    if !has_cpp_compiler {
+                        if let Some(install_cmd) = platform.install_command(tool.name) {
+                            print_error(&format!(
+                                "{} not found  →  install: {}",
+                                tool.name,
+                                install_cmd.join(" ")
+                            ));
+                        } else {
+                            print_error(&format!("{} not found", tool.name));
+                        }
+                        issues += 1;
+                        if fix {
+                            attempt_install(&platform, tool.name);
+                        }
+                    }
                 } else {
-                    print_error(&format!("{} not found", tool.name));
-                }
-                issues += 1;
-
-                if fix {
-                    attempt_install(&platform, tool.name);
+                    if let Some(install_cmd) = platform.install_command(tool.name) {
+                        print_error(&format!(
+                            "{} not found  →  install: {}",
+                            tool.name,
+                            install_cmd.join(" ")
+                        ));
+                    } else {
+                        print_error(&format!("{} not found", tool.name));
+                    }
+                    issues += 1;
+                    if fix {
+                        attempt_install(&platform, tool.name);
+                    }
                 }
             }
         }
@@ -179,6 +210,16 @@ fn find_in_common_locations(binary: &str) -> Option<std::path::PathBuf> {
         "ninja" => vec![
             std::path::PathBuf::from(r"C:\Program Files\Ninja\ninja.exe"),
         ],
+        "vcpkg" => {
+            let mut paths = vec![
+                std::path::PathBuf::from(r"C:\vcpkg\vcpkg.exe"),
+                std::path::PathBuf::from(r"C:\src\vcpkg\vcpkg.exe"),
+            ];
+            if let Ok(home) = std::env::var("USERPROFILE") {
+                paths.push(std::path::PathBuf::from(format!("{}\\vcpkg\\vcpkg.exe", home)));
+            }
+            paths
+        },
         _ => vec![],
     };
 
@@ -204,36 +245,142 @@ fn check_msvc() -> ToolStatus {
 }
 
 fn attempt_install(platform: &Box<dyn Platform>, tool_name: &str) {
-    if let Some(cmd) = platform.install_command(tool_name) {
-        print_info(&format!("Attempting to install {}...", tool_name));
+    use indicatif::{ProgressBar, ProgressStyle};
+    use std::io::{BufRead, BufReader};
+    use std::time::Duration;
 
-        let result = if cfg!(target_os = "windows") {
-            Command::new(&cmd[0])
-                .args(&cmd[1..])
-                .output()
-        } else {
-            Command::new(&cmd[0])
-                .args(&cmd[1..])
-                .output()
+    if let Some(cmd) = platform.install_command(tool_name) {
+        // Create a spinner progress bar for the install
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .tick_chars("⣾⣽⣻⢿⡿⣟⣯⣷")
+                .template("  {spinner:.cyan} {msg}")
+                .unwrap(),
+        );
+        pb.set_message(format!("Downloading {}...", tool_name));
+        pb.enable_steady_tick(Duration::from_millis(80));
+
+        // Spawn the process with piped output
+        let mut child = match Command::new(&cmd[0])
+            .args(&cmd[1..])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                pb.finish_and_clear();
+                print_error(&format!("Failed to run installer for {}: {}", tool_name, e));
+                return;
+            }
         };
 
-        match result {
-            Ok(output) => {
-                if output.status.success() {
-                    print_success(&format!("{} installed successfully", tool_name));
+        // Stream stdout to update progress message
+        let mut stdout_content = String::new();
+        let mut stderr_content = String::new();
+
+        if let Some(out) = child.stdout.take() {
+            let reader = BufReader::new(out);
+            for line in reader.lines().map_while(Result::ok) {
+                if !line.trim().is_empty() {
+                    let display = if line.len() > 55 {
+                        format!("{}...", &line[..52])
+                    } else {
+                        line.clone()
+                    };
+                    pb.set_message(format!("Installing {}: {}", tool_name, display));
+                }
+                stdout_content.push_str(&line);
+                stdout_content.push('\n');
+            }
+        }
+        if let Some(err) = child.stderr.take() {
+            let reader = BufReader::new(err);
+            for line in reader.lines().map_while(Result::ok) {
+                stderr_content.push_str(&line);
+                stderr_content.push('\n');
+            }
+        }
+
+        let status = child.wait();
+        pb.finish_and_clear();
+
+        match status {
+            Ok(s) if s.success() => {
+                print_success(&format!("{} installed successfully", tool_name));
+
+                // vcpkg needs bootstrap after clone
+                #[cfg(target_os = "windows")]
+                if tool_name == "vcpkg" {
+                    let home = std::env::var("USERPROFILE").unwrap_or_default();
+                    let vcpkg_dir = format!("{}\\vcpkg", home);
+                    let bootstrap = format!("{}\\bootstrap-vcpkg.bat", vcpkg_dir);
+                    if std::path::Path::new(&bootstrap).exists() {
+                        let bp = ProgressBar::new_spinner();
+                        bp.set_style(
+                            ProgressStyle::default_spinner()
+                                .tick_chars("⣾⣽⣻⢿⡿⣟⣯⣷")
+                                .template("  {spinner:.cyan} {msg}")
+                                .unwrap(),
+                        );
+                        bp.set_message("Bootstrapping vcpkg...");
+                        bp.enable_steady_tick(Duration::from_millis(80));
+
+                        let bs_result = Command::new("cmd")
+                            .args(["/C", &format!("\"{}\" -disableMetrics", bootstrap)])
+                            .current_dir(&vcpkg_dir)
+                            .output();
+
+                        bp.finish_and_clear();
+                        match bs_result {
+                            Ok(out) if out.status.success() => {
+                                print_success("vcpkg bootstrapped");
+                            }
+                            _ => {
+                                print_warning("Bootstrap failed — run bootstrap-vcpkg.bat manually");
+                            }
+                        }
+                        print_info(&format!("Add to PATH: {}", vcpkg_dir));
+                    }
+                }
+            }
+            Ok(_) => {
+                let combined = format!("{}{}", stdout_content, stderr_content);
+                if combined.contains("already installed") || combined.contains("No available upgrade") {
+                    print_success(&format!("{} is already installed", tool_name));
+                    #[cfg(target_os = "windows")]
+                    {
+                        if tool_name == "clang++" || tool_name == "g++" {
+                            print_info("If not detected, add C:\\Program Files\\LLVM\\bin to your PATH");
+                        }
+                    }
                 } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    print_error(&format!("Failed to install {}: {}", tool_name, stderr.trim()));
+                    let error_msg = if !stderr_content.trim().is_empty() {
+                        stderr_content.trim().lines().last().unwrap_or("unknown error").to_string()
+                    } else if !stdout_content.trim().is_empty() {
+                        stdout_content.trim().lines().last().unwrap_or("unknown error").to_string()
+                    } else {
+                        "unknown error".to_string()
+                    };
+                    print_error(&format!("Failed to install {}: {}", tool_name, error_msg));
                 }
             }
             Err(e) => {
-                print_error(&format!("Failed to run installer for {}: {}", tool_name, e));
+                print_error(&format!("Install process error for {}: {}", tool_name, e));
             }
         }
     }
 }
 
 fn extract_version(output: &str) -> Option<String> {
+    // Try date-based version first (vcpkg uses YYYY-MM-DD format)
+    let date_re = regex::Regex::new(r"(\d{4}-\d{2}-\d{2})").ok()?;
+    if let Some(caps) = date_re.captures(output) {
+        return Some(caps[1].to_string());
+    }
+
+    // Standard semver-like version
     let re = regex::Regex::new(r"(\d+\.\d+[\.\d]*)").ok()?;
     re.captures(output)
         .and_then(|c| c.get(1))
@@ -241,6 +388,17 @@ fn extract_version(output: &str) -> Option<String> {
 }
 
 fn is_version_sufficient(detected: &str, minimum: &str) -> bool {
+    // Handle date-based versions (YYYY-MM-DD, used by vcpkg)
+    if detected.contains('-') && minimum.contains('-') {
+        return detected >= minimum;
+    }
+    // If minimum is just a year (e.g., "2023"), check if detected starts with >= that
+    if minimum.len() == 4 && detected.contains('-') {
+        let det_year: u32 = detected[..4].parse().unwrap_or(0);
+        let min_year: u32 = minimum.parse().unwrap_or(0);
+        return det_year >= min_year;
+    }
+
     let det_parts: Vec<u32> = detected
         .split('.')
         .filter_map(|s| s.parse().ok())
