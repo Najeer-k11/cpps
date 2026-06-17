@@ -1,0 +1,16 @@
+[project]
+name    = "{{project_name}}"
+version = "0.1.0"
+std     = "c++17"
+
+[compiler]
+preferred = "auto"
+flags     = ["-Wall"]
+
+[build]
+src_dir = "src"
+out_dir = "build"
+entry   = "src/main.cpp"
+
+[dependencies]
+sdl2 = { version = "2.28", source = "vcpkg" }

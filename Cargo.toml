@@ -1,0 +1,27 @@
+[package]
+name = "cpps"
+version = "0.1.0"
+edition = "2021"
+description = "A cross-platform CLI tool that makes C++ development feel like Cargo or npm"
+authors = ["Venkata Nazeer"]
+license = "MIT"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+rust-embed = "8"
+colored = "2"
+regex = "1"
+indicatif = "0.17"
+is-terminal = "0.4"
+dirs = "5"
+which = "7"
+strsim = "0.11"
+
+# winreg removed — MSVC detection uses VSINSTALLDIR env var and directory scanning instead
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
