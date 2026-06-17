@@ -246,22 +246,34 @@ fn check_msvc() -> ToolStatus {
 
 fn attempt_install(platform: &Box<dyn Platform>, tool_name: &str) {
     use indicatif::{ProgressBar, ProgressStyle};
-    use std::io::{BufRead, BufReader};
+    use std::io::{BufRead, BufReader, Read};
     use std::time::Duration;
 
     if let Some(cmd) = platform.install_command(tool_name) {
-        // Create a spinner progress bar for the install
-        let pb = ProgressBar::new_spinner();
-        pb.set_style(
-            ProgressStyle::default_spinner()
-                .tick_chars("⣾⣽⣻⢿⡿⣟⣯⣷")
-                .template("  {spinner:.cyan} {msg}")
-                .unwrap(),
-        );
-        pb.set_message(format!("Downloading {}...", tool_name));
-        pb.enable_steady_tick(Duration::from_millis(80));
+        // If vcpkg dir exists but is broken (no vcpkg.exe), remove it first
+        #[cfg(target_os = "windows")]
+        if tool_name == "vcpkg" {
+            let home = std::env::var("USERPROFILE").unwrap_or_default();
+            let vcpkg_dir = std::path::PathBuf::from(&home).join("vcpkg");
+            if vcpkg_dir.exists() && !vcpkg_dir.join("vcpkg.exe").exists() {
+                print_info("Removing broken vcpkg installation...");
+                let _ = std::fs::remove_dir_all(&vcpkg_dir);
+            }
+        }
 
-        // Spawn the process with piped output
+        // Create a progress bar (percentage-based)
+        let pb = ProgressBar::new(100);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("  {spinner:.cyan} {msg} [{bar:30.cyan/dim}] {pos}%")
+                .unwrap()
+                .progress_chars("█▓░"),
+        );
+        pb.set_message(format!("Installing {}", tool_name));
+        pb.set_position(0);
+        pb.enable_steady_tick(Duration::from_millis(100));
+
+        // Spawn the process — git clone sends progress to stderr
         let mut child = match Command::new(&cmd[0])
             .args(&cmd[1..])
             .stdout(std::process::Stdio::piped())
@@ -276,34 +288,53 @@ fn attempt_install(platform: &Box<dyn Platform>, tool_name: &str) {
             }
         };
 
-        // Stream stdout to update progress message
         let mut stdout_content = String::new();
         let mut stderr_content = String::new();
 
+        // Read stderr in chunks (git progress uses \r for in-place updates)
+        if let Some(err) = child.stderr.take() {
+            let mut reader = BufReader::new(err);
+            let mut buf = [0u8; 256];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let chunk = String::from_utf8_lossy(&buf[..n]).to_string();
+                        stderr_content.push_str(&chunk);
+
+                        // Parse percentage from git output: "Receiving objects:  45% (123/456)"
+                        // or winget output with percentage
+                        if let Some(pct) = extract_percentage(&chunk) {
+                            pb.set_position(pct);
+                            // Update phase message
+                            if chunk.contains("Receiving") {
+                                pb.set_message(format!("Downloading {}", tool_name));
+                            } else if chunk.contains("Resolving") {
+                                pb.set_message(format!("Resolving {}", tool_name));
+                            } else if chunk.contains("Counting") {
+                                pb.set_message(format!("Counting {}", tool_name));
+                            }
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+
+        // Also drain stdout
         if let Some(out) = child.stdout.take() {
             let reader = BufReader::new(out);
             for line in reader.lines().map_while(Result::ok) {
-                if !line.trim().is_empty() {
-                    let display = if line.len() > 55 {
-                        format!("{}...", &line[..52])
-                    } else {
-                        line.clone()
-                    };
-                    pb.set_message(format!("Installing {}: {}", tool_name, display));
-                }
                 stdout_content.push_str(&line);
                 stdout_content.push('\n');
-            }
-        }
-        if let Some(err) = child.stderr.take() {
-            let reader = BufReader::new(err);
-            for line in reader.lines().map_while(Result::ok) {
-                stderr_content.push_str(&line);
-                stderr_content.push('\n');
+                if let Some(pct) = extract_percentage(&line) {
+                    pb.set_position(pct);
+                }
             }
         }
 
         let status = child.wait();
+        pb.set_position(100);
         pb.finish_and_clear();
 
         match status {
@@ -317,21 +348,22 @@ fn attempt_install(platform: &Box<dyn Platform>, tool_name: &str) {
                     let vcpkg_dir = format!("{}\\vcpkg", home);
                     let bootstrap = format!("{}\\bootstrap-vcpkg.bat", vcpkg_dir);
                     if std::path::Path::new(&bootstrap).exists() {
-                        let bp = ProgressBar::new_spinner();
+                        let bp = ProgressBar::new(100);
                         bp.set_style(
-                            ProgressStyle::default_spinner()
-                                .tick_chars("⣾⣽⣻⢿⡿⣟⣯⣷")
-                                .template("  {spinner:.cyan} {msg}")
-                                .unwrap(),
+                            ProgressStyle::default_bar()
+                                .template("  {spinner:.cyan} {msg} [{bar:30.cyan/dim}] {pos}%")
+                                .unwrap()
+                                .progress_chars("█▓░"),
                         );
-                        bp.set_message("Bootstrapping vcpkg...");
-                        bp.enable_steady_tick(Duration::from_millis(80));
+                        bp.set_message("Bootstrapping vcpkg");
+                        bp.enable_steady_tick(Duration::from_millis(100));
 
-                        let bs_result = Command::new("cmd")
-                            .args(["/C", &format!("\"{}\" -disableMetrics", bootstrap)])
+                        let bs_result = Command::new(&bootstrap)
+                            .arg("-disableMetrics")
                             .current_dir(&vcpkg_dir)
                             .output();
 
+                        bp.set_position(100);
                         bp.finish_and_clear();
                         match bs_result {
                             Ok(out) if out.status.success() => {
@@ -371,6 +403,21 @@ fn attempt_install(platform: &Box<dyn Platform>, tool_name: &str) {
             }
         }
     }
+}
+
+/// Extract a percentage number from a line of output (e.g. "Receiving objects: 45%")
+fn extract_percentage(text: &str) -> Option<u64> {
+    let re = regex::Regex::new(r"(\d{1,3})%").ok()?;
+    // Find the last percentage in the chunk (most recent progress)
+    let mut last_pct = None;
+    for caps in re.captures_iter(text) {
+        if let Ok(pct) = caps[1].parse::<u64>() {
+            if pct <= 100 {
+                last_pct = Some(pct);
+            }
+        }
+    }
+    last_pct
 }
 
 fn extract_version(output: &str) -> Option<String> {

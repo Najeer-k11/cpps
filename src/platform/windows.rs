@@ -45,10 +45,11 @@ impl Platform for WindowsPlatform {
             // vcpkg is not on winget — clone from GitHub
             "vcpkg" => {
                 let home = std::env::var("USERPROFILE").unwrap_or_else(|_| r"C:\".to_string());
+                let vcpkg_path = format!("{}\\vcpkg", home);
                 vec![
-                    "git".into(), "clone".into(),
+                    "git".into(), "clone".into(), "--progress".into(),
                     "https://github.com/microsoft/vcpkg.git".into(),
-                    format!("{}\\vcpkg", home),
+                    vcpkg_path,
                 ]
             },
             _ => return None,
