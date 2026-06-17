@@ -1,8 +1,6 @@
 name: CI
 
 on:
-    push:
-        branches: [main]
     pull_request:
         branches: [main]
 
@@ -21,7 +19,7 @@ jobs:
               with:
                   components: clippy, rustfmt
 
-            - name: Cache cargo registry
+            - name: Cache cargo
               uses: actions/cache@v4
               with:
                   path: |
@@ -39,7 +37,7 @@ jobs:
             - name: Build
               run: cargo build
 
-            - name: Test CLI basics
+            - name: Test CLI
               shell: bash
               run: |
                   ./target/debug/cpps --version
