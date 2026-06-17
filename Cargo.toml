@@ -1,7 +1,7 @@
 [package]
 name = "cpps"
-version = "0.1.0"
-edition = "2021"
+version = "0.2.0"
+edition = "2026"
 description = "A cross-platform CLI tool that makes C++ development feel like Cargo or npm"
 authors = ["Venkata Nazeer"]
 license = "MIT"
