@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::commands::build::resolve_vcpkg_deps;
 use crate::compiler::detect::CompilerDetector;
 use crate::compiler::invoke::BuildCommand;
 use crate::config::CppsConfig;
@@ -8,6 +9,7 @@ use crate::errors::{formatter, parser};
 use crate::output::colors::print_error;
 use crate::output::progress;
 use crate::output::OutputConfig;
+use crate::platform;
 
 pub fn execute(file: Option<&str>, output_config: &OutputConfig) -> i32 {
     match file {
@@ -125,6 +127,11 @@ fn run_project_mode(output_config: &OutputConfig) -> i32 {
         }
     };
 
+    // Resolve vcpkg dependency paths
+    let plat = platform::current_platform();
+    let triplet = plat.vcpkg_triplet();
+    let (include_paths, lib_paths, libraries) = resolve_vcpkg_deps(&config, triplet);
+
     // Build
     let build_cmd = match BuildCommand::from_config(
         &project_dir,
@@ -135,9 +142,9 @@ fn run_project_mode(output_config: &OutputConfig) -> i32 {
         &config.build.out_dir,
         &config.build.entry,
         false,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
+        include_paths,
+        lib_paths,
+        libraries,
     ) {
         Ok(cmd) => cmd,
         Err(e) => {

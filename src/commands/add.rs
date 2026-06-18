@@ -18,11 +18,15 @@ pub fn execute(package: &str, output_config: &OutputConfig) -> i32 {
         }
     };
 
-    // Check vcpkg is available
-    if which::which("vcpkg").is_err() {
-        print_error("vcpkg not found. Run `cpps doctor --fix` to install it.");
-        return 1;
-    }
+    // Find vcpkg binary (PATH + common locations)
+    let vcpkg_bin = find_vcpkg();
+    let vcpkg_bin = match vcpkg_bin {
+        Some(p) => p,
+        None => {
+            print_error("vcpkg not found. Run `cpps doctor --fix` to install it.");
+            return 1;
+        }
+    };
 
     // Get platform triplet
     let plat = platform::current_platform();
@@ -34,7 +38,7 @@ pub fn execute(package: &str, output_config: &OutputConfig) -> i32 {
 
     let spinner = progress::create_spinner(output_config, &format!("Installing {}...", package));
 
-    let output = Command::new("vcpkg")
+    let output = Command::new(&vcpkg_bin)
         .args(["install", &install_arg])
         .output();
 
@@ -53,7 +57,7 @@ pub fn execute(package: &str, output_config: &OutputConfig) -> i32 {
                 // Check if package not found
                 if combined.contains("does not exist") || combined.contains("not found") {
                     print_error(&format!("Package '{}' not found in vcpkg registry.", package));
-                    suggest_similar_packages(package);
+                    suggest_similar_packages(&vcpkg_bin, package);
                 } else {
                     print_error(&format!(
                         "vcpkg install failed: {}",
@@ -112,8 +116,43 @@ pub fn execute(package: &str, output_config: &OutputConfig) -> i32 {
     }
 }
 
+/// Find vcpkg binary — checks PATH first, then common install locations
+pub fn find_vcpkg() -> Option<PathBuf> {
+    // Check PATH
+    if let Ok(path) = which::which("vcpkg") {
+        return Some(path);
+    }
+
+    // Check common locations
+    let candidates = get_vcpkg_candidates();
+    candidates.into_iter().find(|p| p.exists())
+}
+
+fn get_vcpkg_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        candidates.push(PathBuf::from(&home).join("vcpkg").join("vcpkg.exe"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        candidates.push(PathBuf::from(&home).join("vcpkg").join("vcpkg"));
+    }
+
+    candidates.push(PathBuf::from(r"C:\vcpkg\vcpkg.exe"));
+    candidates.push(PathBuf::from(r"C:\src\vcpkg\vcpkg.exe"));
+    candidates.push(PathBuf::from("/usr/local/bin/vcpkg"));
+    candidates.push(PathBuf::from("/opt/vcpkg/vcpkg"));
+
+    candidates
+}
+
+/// Get the vcpkg installed directory (where packages are installed)
+pub fn get_vcpkg_root() -> Option<PathBuf> {
+    let vcpkg_bin = find_vcpkg()?;
+    vcpkg_bin.parent().map(|p| p.to_path_buf())
+}
+
 fn extract_version_from_output(output: &str) -> Option<String> {
-    // vcpkg output often contains: "package-name:triplet version#port-version"
     let re = regex::Regex::new(r"(\d+\.\d+[\.\d]*)").ok()?;
     for line in output.lines().rev() {
         if let Some(caps) = re.captures(line) {
@@ -123,9 +162,8 @@ fn extract_version_from_output(output: &str) -> Option<String> {
     None
 }
 
-fn suggest_similar_packages(package: &str) {
-    // Try vcpkg search to find similar packages
-    let output = Command::new("vcpkg")
+fn suggest_similar_packages(vcpkg_bin: &PathBuf, package: &str) {
+    let output = Command::new(vcpkg_bin)
         .args(["search", package])
         .output();
 
