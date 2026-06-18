@@ -46,21 +46,28 @@ pub fn execute(release: bool, output_config: &OutputConfig) -> i32 {
     // Resolve vcpkg dependency paths
     let plat = platform::current_platform();
     let triplet = plat.vcpkg_triplet();
-    let (include_paths, lib_paths, libraries) = resolve_vcpkg_deps(&config, triplet);
+    let (include_paths, lib_paths, link_flags) = resolve_vcpkg_deps(&config, triplet);
+    let dep_cflags = resolve_dep_cflags(&config);
+    let subsystem = resolve_subsystem(&config);
+
+    // Merge dep cflags with user flags
+    let mut all_flags: Vec<String> = config.compiler.flags.clone();
+    all_flags.extend(dep_cflags);
 
     // Build
     let build_cmd = match BuildCommand::from_config(
         &project_dir,
         compiler,
         &config.project.std,
-        &config.compiler.flags,
+        &all_flags,
         &config.build.src_dir,
         &config.build.out_dir,
         &config.build.entry,
         release,
         include_paths,
         lib_paths,
-        libraries,
+        link_flags,
+        subsystem,
     ) {
         Ok(cmd) => cmd,
         Err(e) => {
@@ -137,18 +144,18 @@ fn find_config_file() -> Option<PathBuf> {
     }
 }
 
-/// Resolve vcpkg include/lib paths for all dependencies in cpps.toml
+/// Resolve vcpkg include/lib paths and linker flags for all dependencies in cpps.toml
 pub fn resolve_vcpkg_deps(config: &CppsConfig, triplet: &str) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<String>) {
     let mut include_paths = Vec::new();
     let mut lib_paths = Vec::new();
-    let libraries = Vec::new();
+    let mut link_flags = Vec::new();
 
     if config.dependencies.is_empty() {
-        return (include_paths, lib_paths, libraries);
+        return (include_paths, lib_paths, link_flags);
     }
 
-    // Find vcpkg root
-    if let Some(vcpkg_root) = add::get_vcpkg_root() {
+    // Find vcpkg root and add installed paths
+    let vcpkg_lib_dir = if let Some(vcpkg_root) = add::get_vcpkg_root() {
         let installed = vcpkg_root.join("installed").join(triplet);
         if installed.exists() {
             let inc = installed.join("include");
@@ -157,10 +164,77 @@ pub fn resolve_vcpkg_deps(config: &CppsConfig, triplet: &str) -> (Vec<PathBuf>, 
                 include_paths.push(inc);
             }
             if lib.exists() {
-                lib_paths.push(lib);
+                lib_paths.push(lib.clone());
+            }
+            Some(lib)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Collect linker flags from each dependency
+    for (name, dep) in &config.dependencies {
+        if !dep.link.is_empty() {
+            // Use explicitly specified link flags
+            for flag in &dep.link {
+                link_flags.push(flag.clone());
+            }
+        } else if cfg!(target_os = "windows") {
+            // On Windows, auto-detect .lib files matching the package name
+            if let Some(ref lib_dir) = vcpkg_lib_dir {
+                let auto_libs = find_matching_libs(lib_dir, name);
+                for lib_file in auto_libs {
+                    // Pass full .lib filename via -Wl on Windows
+                    link_flags.push(format!("-Wl,{}", lib_file));
+                }
             }
         }
     }
 
-    (include_paths, lib_paths, libraries)
+    (include_paths, lib_paths, link_flags)
+}
+
+/// Find .lib files in a directory that match a package name pattern
+fn find_matching_libs(lib_dir: &PathBuf, package_name: &str) -> Vec<String> {
+    let mut libs = Vec::new();
+
+    // Convert package name to lib search pattern (boost-filesystem -> boost_filesystem)
+    let search_name = package_name.replace('-', "_");
+
+    if let Ok(entries) = std::fs::read_dir(lib_dir) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.ends_with(".lib") {
+                let lower = file_name.to_lowercase();
+                if lower.starts_with(&search_name.to_lowercase()) {
+                    libs.push(file_name);
+                }
+            }
+        }
+    }
+
+    libs
+}
+
+/// Get additional compiler flags from dependencies (cflags)
+pub fn resolve_dep_cflags(config: &CppsConfig) -> Vec<String> {
+    let mut cflags = Vec::new();
+    for (_name, dep) in &config.dependencies {
+        for flag in &dep.cflags {
+            cflags.push(flag.clone());
+        }
+    }
+    cflags
+}
+
+/// Get the Windows subsystem if any dependency requires it
+pub fn resolve_subsystem(config: &CppsConfig) -> Option<String> {
+    for (_name, dep) in &config.dependencies {
+        if let Some(ref sub) = dep.subsystem {
+            return Some(sub.clone());
+        }
+    }
+    None
 }

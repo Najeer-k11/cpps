@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::commands::build::resolve_vcpkg_deps;
+use crate::commands::build::{resolve_vcpkg_deps, resolve_dep_cflags, resolve_subsystem};
 use crate::compiler::detect::CompilerDetector;
 use crate::compiler::invoke::BuildCommand;
 use crate::config::CppsConfig;
@@ -130,21 +130,28 @@ fn run_project_mode(output_config: &OutputConfig) -> i32 {
     // Resolve vcpkg dependency paths
     let plat = platform::current_platform();
     let triplet = plat.vcpkg_triplet();
-    let (include_paths, lib_paths, libraries) = resolve_vcpkg_deps(&config, triplet);
+    let (include_paths, lib_paths, link_flags) = resolve_vcpkg_deps(&config, triplet);
+    let dep_cflags = resolve_dep_cflags(&config);
+    let subsystem = resolve_subsystem(&config);
+
+    // Merge dep cflags with user flags
+    let mut all_flags: Vec<String> = config.compiler.flags.clone();
+    all_flags.extend(dep_cflags);
 
     // Build
     let build_cmd = match BuildCommand::from_config(
         &project_dir,
         compiler,
         &config.project.std,
-        &config.compiler.flags,
+        &all_flags,
         &config.build.src_dir,
         &config.build.out_dir,
         &config.build.entry,
         false,
         include_paths,
         lib_paths,
-        libraries,
+        link_flags,
+        subsystem,
     ) {
         Ok(cmd) => cmd,
         Err(e) => {

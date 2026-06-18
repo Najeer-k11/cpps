@@ -206,6 +206,8 @@ fn template_dependencies(template_name: &str) -> Vec<&'static str> {
         "sdl" => vec!["sdl2"],
         "raylib" => vec!["raylib"],
         "test" => vec!["doctest"],
+        "fmt" => vec!["fmt"],
+        "boost-fs" => vec!["boost-filesystem"],
         _ => vec![],
     }
 }

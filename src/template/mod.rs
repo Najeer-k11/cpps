@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 #[folder = "src/template/templates/"]
 struct TemplateAssets;
 
-pub const AVAILABLE_TEMPLATES: &[&str] = &["basic", "sdl", "raylib", "lib", "test"];
+pub const AVAILABLE_TEMPLATES: &[&str] = &["basic", "sdl", "raylib", "lib", "test", "fmt", "boost-fs"];
 
 /// Scaffold a project from a template
 pub fn scaffold(

@@ -82,11 +82,15 @@ pub fn execute(package: &str, output_config: &OutputConfig) -> i32 {
 
             let was_existing = config.dependencies.contains_key(package);
 
+            let dep_info = get_known_link_info(package);
             config.dependencies.insert(
                 package.to_string(),
                 DependencySpec {
                     version: version.clone(),
                     source: "vcpkg".to_string(),
+                    link: dep_info.link,
+                    cflags: dep_info.cflags,
+                    subsystem: dep_info.subsystem,
                 },
             );
 
@@ -195,5 +199,130 @@ fn find_config_file() -> Option<PathBuf> {
         if !dir.pop() {
             return None;
         }
+    }
+}
+
+/// Known linker requirements for popular packages
+struct KnownDepInfo {
+    link: Vec<String>,
+    cflags: Vec<String>,
+    subsystem: Option<String>,
+}
+
+fn get_known_link_info(package: &str) -> KnownDepInfo {
+    match package {
+        "sdl2" => {
+            if cfg!(target_os = "windows") {
+                KnownDepInfo {
+                    link: vec![
+                        "-lSDL2".into(),
+                        "-lshell32".into(), "-lole32".into(),
+                        "-loleaut32".into(), "-limm32".into(),
+                        "-lversion".into(), "-lwinmm".into(),
+                        "-lsetupapi".into(), "-lcfgmgr32".into(),
+                    ],
+                    cflags: vec![],
+                    subsystem: Some("console".into()),
+                }
+            } else if cfg!(target_os = "macos") {
+                KnownDepInfo {
+                    link: vec![
+                        "-lSDL2main".into(), "-lSDL2".into(),
+                        "-framework".into(), "Cocoa".into(),
+                        "-framework".into(), "IOKit".into(),
+                        "-framework".into(), "CoreVideo".into(),
+                    ],
+                    cflags: vec![],
+                    subsystem: None,
+                }
+            } else {
+                KnownDepInfo {
+                    link: vec!["-lSDL2main".into(), "-lSDL2".into()],
+                    cflags: vec![],
+                    subsystem: None,
+                }
+            }
+        }
+        "raylib" => {
+            if cfg!(target_os = "windows") {
+                KnownDepInfo {
+                    link: vec![
+                        "-lraylib".into(), "-lopengl32".into(),
+                        "-lgdi32".into(), "-lwinmm".into(),
+                        "-lshell32".into(),
+                    ],
+                    cflags: vec![],
+                    subsystem: Some("console".into()),
+                }
+            } else if cfg!(target_os = "macos") {
+                KnownDepInfo {
+                    link: vec![
+                        "-lraylib".into(),
+                        "-framework".into(), "OpenGL".into(),
+                        "-framework".into(), "Cocoa".into(),
+                        "-framework".into(), "IOKit".into(),
+                        "-framework".into(), "CoreVideo".into(),
+                    ],
+                    cflags: vec![],
+                    subsystem: None,
+                }
+            } else {
+                KnownDepInfo {
+                    link: vec![
+                        "-lraylib".into(), "-lGL".into(),
+                        "-lm".into(), "-lpthread".into(),
+                        "-ldl".into(), "-lrt".into(),
+                    ],
+                    cflags: vec![],
+                    subsystem: None,
+                }
+            }
+        }
+        "fmt" => KnownDepInfo {
+            link: vec!["-lfmt".into()],
+            cflags: vec![],
+            subsystem: None,
+        },
+        "imgui" => KnownDepInfo {
+            link: vec!["-limgui".into()],
+            cflags: vec![],
+            subsystem: None,
+        },
+        "boost-filesystem" => {
+            if cfg!(target_os = "windows") {
+                // On Windows, boost libs have decorated names — we'll use auto-detection
+                KnownDepInfo {
+                    link: vec![],  // Auto-detected from vcpkg lib dir at build time
+                    cflags: vec![],
+                    subsystem: None,
+                }
+            } else {
+                KnownDepInfo {
+                    link: vec!["-lboost_filesystem".into()],
+                    cflags: vec![],
+                    subsystem: None,
+                }
+            }
+        },
+        "glfw3" => {
+            if cfg!(target_os = "windows") {
+                KnownDepInfo {
+                    link: vec!["-lglfw3".into(), "-lopengl32".into(), "-lgdi32".into()],
+                    cflags: vec![],
+                    subsystem: None,
+                }
+            } else {
+                KnownDepInfo {
+                    link: vec!["-lglfw".into(), "-lGL".into()],
+                    cflags: vec![],
+                    subsystem: None,
+                }
+            }
+        }
+        _ => KnownDepInfo {
+            link: vec![],
+            cflags: vec![],
+            subsystem: None,
+        },
     }
 }

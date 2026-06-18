@@ -60,6 +60,7 @@ impl BuildCommand {
         include_paths: Vec<PathBuf>,
         lib_paths: Vec<PathBuf>,
         libraries: Vec<String>,
+        subsystem: Option<String>,
     ) -> Result<Self, String> {
         let src_path = project_dir.join(src_dir);
         let out_path = project_dir.join(out_dir);
@@ -113,6 +114,13 @@ impl BuildCommand {
         }
         all_flags.extend(flags.iter().cloned());
 
+        // Add subsystem linker flag (Windows: -Wl,/SUBSYSTEM:WINDOWS)
+        if let Some(ref sub) = subsystem {
+            if cfg!(target_os = "windows") {
+                all_flags.push(format!("-Wl,/SUBSYSTEM:{}", sub.to_uppercase()));
+            }
+        }
+
         Ok(Self {
             compiler_path: compiler.path.clone(),
             standard: format!("-std={}", std_version),
@@ -155,9 +163,10 @@ impl BuildCommand {
             cmd.arg(format!("-L{}", path.display()));
         }
 
-        // Add libraries
+        // Add libraries / linker flags
         for lib in &self.libraries {
-            cmd.arg(format!("-l{}", lib));
+            // Flags come as "-lSDL2", "-lshell32", "-framework Cocoa", "-Wl,/SUBSYSTEM:..."
+            cmd.arg(lib);
         }
 
         let output = cmd
@@ -168,6 +177,30 @@ impl BuildCommand {
         let stderr_output = String::from_utf8_lossy(&output.stderr).to_string();
 
         if output.status.success() {
+            // Copy DLLs from vcpkg bin directory to output directory (Windows)
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(out_dir) = self.output.parent() {
+                    for lib_path in &self.lib_paths {
+                        // vcpkg DLLs are in ../bin relative to lib
+                        let bin_dir = lib_path.parent()
+                            .map(|p| p.join("bin"))
+                            .unwrap_or_default();
+                        if bin_dir.exists() {
+                            if let Ok(entries) = std::fs::read_dir(&bin_dir) {
+                                for entry in entries.flatten() {
+                                    let path = entry.path();
+                                    if path.extension().map(|e| e == "dll").unwrap_or(false) {
+                                        let dest = out_dir.join(path.file_name().unwrap());
+                                        let _ = std::fs::copy(&path, &dest);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             let binary_size = std::fs::metadata(&self.output).ok().map(|m| m.len());
             Ok(BuildResult {
                 success: true,

@@ -51,23 +51,27 @@ pub enum Commands {
         long_about = "Scaffolds a new C++ project directory with cpps.toml config, source files,\n\
             and VS Code IntelliSense configuration. Templates provide ready-to-run code.\n\n\
             TEMPLATES:\n\
-            \x20 basic   — Hello world with iostream (default)\n\
-            \x20 sdl     — SDL2 window with event loop and input handling\n\
-            \x20 raylib  — Raylib window with draw loop\n\
-            \x20 lib     — Static library layout with include/ and src/\n\
-            \x20 test    — Project with doctest testing framework\n\n\
+            \x20 basic     — Hello world with iostream (default)\n\
+            \x20 sdl       — SDL2 window with event loop and input handling\n\
+            \x20 raylib    — Raylib window with draw loop\n\
+            \x20 fmt       — Modern formatting with the fmt library\n\
+            \x20 boost-fs  — File operations with Boost.Filesystem\n\
+            \x20 lib       — Static library layout with include/ and src/\n\
+            \x20 test      — Project with doctest testing framework\n\n\
             EXAMPLES:\n\
-            \x20 cpps new hello-world              Basic project\n\
-            \x20 cpps new my-game --template sdl   SDL2 game\n\
-            \x20 cpps new engine --template raylib  Raylib project\n\
-            \x20 cpps new mylib --template lib      Library project\n\
-            \x20 cpps new myapp --template test     With tests"
+            \x20 cpps new hello-world                Basic project\n\
+            \x20 cpps new my-game --template sdl     SDL2 game\n\
+            \x20 cpps new engine --template raylib   Raylib project\n\
+            \x20 cpps new myapp --template fmt       Formatted output\n\
+            \x20 cpps new files --template boost-fs  Filesystem ops\n\
+            \x20 cpps new mylib --template lib       Library project\n\
+            \x20 cpps new myapp --template test      With tests"
     )]
     New {
         /// Project name (alphanumeric, hyphens, underscores; max 64 chars)
         name: String,
         /// Project template to use
-        #[arg(long, default_value = "basic", value_parser = ["basic", "sdl", "raylib", "lib", "test"])]
+        #[arg(long, default_value = "basic", value_parser = ["basic", "sdl", "raylib", "lib", "test", "fmt", "boost-fs"])]
         template: String,
     },
 

@@ -64,6 +64,15 @@ pub struct DependencySpec {
     pub version: String,
     #[serde(default = "default_source")]
     pub source: String,
+    /// Linker flags needed for this dependency (e.g., ["-lSDL2", "-lSDL2main"])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub link: Vec<String>,
+    /// Additional compiler flags (e.g., ["-DSDL_MAIN_HANDLED"])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cflags: Vec<String>,
+    /// Subsystem flag for Windows linker (e.g., "windows" or "console")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subsystem: Option<String>,
 }
 
 fn default_version() -> String {

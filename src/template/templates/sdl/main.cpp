@@ -1,11 +1,14 @@
 // {{project_name}} - SDL2 Project
+#define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 #include <iostream>
 
 const int SCREEN_WIDTH = 800;
 const int SCREEN_HEIGHT = 600;
 
-int main(int argc, char* argv[]) {
+int main() {
+    SDL_SetMainReady();
+
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         std::cerr << "SDL could not initialize! Error: " << SDL_GetError() << std::endl;
         return 1;
@@ -37,15 +40,11 @@ int main(int argc, char* argv[]) {
 
     while (running) {
         while (SDL_PollEvent(&event)) {
-            switch (event.type) {
-                case SDL_QUIT:
-                    running = false;
-                    break;
-                case SDL_KEYDOWN:
-                    if (event.key.keysym.sym == SDLK_ESCAPE) {
-                        running = false;
-                    }
-                    break;
+            if (event.type == SDL_QUIT) {
+                running = false;
+            }
+            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) {
+                running = false;
             }
         }
 
@@ -53,7 +52,7 @@ int main(int argc, char* argv[]) {
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
         SDL_RenderClear(renderer);
 
-        // Draw a rectangle
+        // Draw a green rectangle
         SDL_Rect rect = {SCREEN_WIDTH / 4, SCREEN_HEIGHT / 4, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2};
         SDL_SetRenderDrawColor(renderer, 100, 200, 100, 255);
         SDL_RenderFillRect(renderer, &rect);
