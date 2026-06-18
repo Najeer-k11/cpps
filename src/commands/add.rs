@@ -227,17 +227,20 @@ fn get_known_link_info(package: &str) -> KnownDepInfo {
             } else if cfg!(target_os = "macos") {
                 KnownDepInfo {
                     link: vec![
-                        "-lSDL2main".into(), "-lSDL2".into(),
+                        "-lSDL2".into(),
                         "-framework".into(), "Cocoa".into(),
                         "-framework".into(), "IOKit".into(),
                         "-framework".into(), "CoreVideo".into(),
+                        "-framework".into(), "CoreAudio".into(),
+                        "-framework".into(), "AudioToolbox".into(),
+                        "-framework".into(), "Carbon".into(),
                     ],
                     cflags: vec![],
                     subsystem: None,
                 }
             } else {
                 KnownDepInfo {
-                    link: vec!["-lSDL2main".into(), "-lSDL2".into()],
+                    link: vec!["-lSDL2".into(), "-lpthread".into(), "-ldl".into()],
                     cflags: vec![],
                     subsystem: None,
                 }
@@ -311,9 +314,20 @@ fn get_known_link_info(package: &str) -> KnownDepInfo {
                     cflags: vec![],
                     subsystem: None,
                 }
+            } else if cfg!(target_os = "macos") {
+                KnownDepInfo {
+                    link: vec![
+                        "-lglfw".into(),
+                        "-framework".into(), "OpenGL".into(),
+                        "-framework".into(), "Cocoa".into(),
+                        "-framework".into(), "IOKit".into(),
+                    ],
+                    cflags: vec![],
+                    subsystem: None,
+                }
             } else {
                 KnownDepInfo {
-                    link: vec!["-lglfw".into(), "-lGL".into()],
+                    link: vec!["-lglfw".into(), "-lGL".into(), "-lX11".into(), "-lpthread".into()],
                     cflags: vec![],
                     subsystem: None,
                 }

@@ -177,12 +177,27 @@ impl BuildCommand {
         let stderr_output = String::from_utf8_lossy(&output.stderr).to_string();
 
         if output.status.success() {
-            // Copy DLLs from vcpkg bin directory to output directory (Windows)
+            // Copy only relevant DLLs from vcpkg bin directory to output directory (Windows)
             #[cfg(target_os = "windows")]
             {
                 if let Some(out_dir) = self.output.parent() {
+                    // Build a list of library base names from link flags
+                    // e.g., "-lSDL2" -> "sdl2", "-Wl,boost_filesystem-vc143-mt-x64-1_91.lib" -> "boost_filesystem"
+                    let linked_names: Vec<String> = self.libraries.iter()
+                        .filter_map(|lib| {
+                            if lib.starts_with("-l") {
+                                Some(lib[2..].to_lowercase())
+                            } else if lib.starts_with("-Wl,") && lib.ends_with(".lib") {
+                                let name = &lib[4..lib.len() - 4]; // strip "-Wl," and ".lib"
+                                // Get base name before version decorators (e.g., "boost_filesystem-vc143..." -> "boost_filesystem")
+                                Some(name.split('-').next().unwrap_or(name).to_lowercase())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
                     for lib_path in &self.lib_paths {
-                        // vcpkg DLLs are in ../bin relative to lib
                         let bin_dir = lib_path.parent()
                             .map(|p| p.join("bin"))
                             .unwrap_or_default();
@@ -191,8 +206,18 @@ impl BuildCommand {
                                 for entry in entries.flatten() {
                                     let path = entry.path();
                                     if path.extension().map(|e| e == "dll").unwrap_or(false) {
-                                        let dest = out_dir.join(path.file_name().unwrap());
-                                        let _ = std::fs::copy(&path, &dest);
+                                        let dll_name = path.file_stem()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .to_lowercase();
+                                        // Only copy if the DLL matches one of our linked libraries
+                                        let is_relevant = linked_names.iter().any(|lib_name| {
+                                            dll_name == *lib_name || dll_name.starts_with(&format!("{}-", lib_name))
+                                        });
+                                        if is_relevant {
+                                            let dest = out_dir.join(path.file_name().unwrap());
+                                            let _ = std::fs::copy(&path, &dest);
+                                        }
                                     }
                                 }
                             }
